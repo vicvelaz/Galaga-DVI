@@ -3,21 +3,23 @@
 // Objeto que maneja la lógica del juego
 ////////////////////////////////////////
 var Game = new function () {
-    // Inicialización del juego
-    // se obtiene el canvas, se cargan los recursos y se llama a callback
+    // Game Initialization
     this.initialize = function (canvasElementId, sprite_data, callback) {
-        this.canvas = document.getElementById(canvasElementId)
+        this.canvas = document.getElementById(canvasElementId);
+        this.playerOffset = 10;
+        this.canvasMultiplier = 1;
+        this.setupMobile();
         this.width = this.canvas.width;
         this.height = this.canvas.height;
         this.ctx = this.canvas.getContext && this.canvas.getContext('2d');
-        if (!this.ctx) {
-            return alert("Please upgrade your browser to play");
-        }
+        if (!this.ctx) { return alert("Please upgrade your browser to play"); }
         this.setupInput();
         this.loop();
+        if (this.mobile) {
+            this.setBoard(4, new TouchControls());
+        }
         SpriteSheet.load(sprite_data, callback);
     };
-
 
     // le asignamos un nombre lógico a cada tecla que nos interesa
     var KEY_CODES = { 37: 'left', 39: 'right', 32: 'fire' };
@@ -52,11 +54,56 @@ var Game = new function () {
                 boards[i].draw(Game.ctx);
             }
         }
-        setTimeout(Game.loop, dt);
+        //setTimeout(Game.loop, dt);
+        requestAnimationFrame(Game.loop);
     };
 
     // Change an active game board
     this.setBoard = function (num, board) { boards[num] = board; };
+
+    this.setupMobile = function () {
+        //hasTouch indica si las funciones táctiles están disponibles
+        var container = document.getElementById("container"),
+            hasTouch = !!('ontouchstart' in window),
+            w = window.innerWidth, h = window.innerHeight;
+        //indicar al juego que estamos en mobile
+        if (hasTouch) { this.mobile = true; }
+        //Si la pantalla es demasiado grande o no hay táctil terminamos
+        if (screen.width >= 1280 || !hasTouch) {
+            console.log('Dispositivo no compatible');
+            return false;
+        }
+        //Avisamos de rotar la pantalla
+        if (w > h) {
+            alert("Por favor, rota el dispositivo y pulsa ACCEPTAR/OK");
+            w = window.innerWidth; h = window.innerHeight;
+        }
+        //Hacemos el contenedor más grande que la pantalla
+        container.style.height = h * 2 + "px";
+        //Y hacemos scroll para intentar quitar la barra de dirección del navegador
+        window.scrollTo(0, 1);
+        //Utilizamos CSS para ajustar el ancho y alto
+        h = window.innerHeight + 2;
+        container.style.height = h + "px";
+        container.style.width = w + "px";
+        container.style.padding = 0;
+        //Si la pantalla es muy grande (tablet) utilizamos un factor de multiplicación del canva
+        if (h >= this.canvas.height * 1.75 || w >= this.canvas.height * 1.75) {
+            this.canvasMultiplier = 2;
+            this.canvas.width = w / 2;
+            this.canvas.height = h / 2;
+            this.canvas.style.width = w + "px";
+            this.canvas.style.height = h + "px";
+        } else //Si la pantalla no es demasiado grande reescalamos directamente
+        {
+            this.canvas.width = w;
+            this.canvas.height = h;
+        }
+        //Colocamos el canvas de forma absoluta a la coordenada 0,0 de la ventana
+        this.canvas.style.position = 'absolute';
+        this.canvas.style.left = "0px";
+        this.canvas.style.top = "0px";
+    };
 };
 
 
@@ -104,53 +151,11 @@ var TitleScreen = function TitleScreen(title, subtitle, callback) {
     };
 };
 
-////////////////////////////////////////
-// Objeto del jugador principal
-////////////////////////////////////////
-var PlayerShip = function () {
-    this.w = SpriteSheet.map['ship'].w;
-    this.h = SpriteSheet.map['ship'].h;
-    this.x = Game.width / 2 - this.w / 2;
-    this.y = Game.height - 10 - this.h;
-    this.vx = 0;
-    this.maxVel = 200;
-
-    this.reloadTime = 0.15; // un cuarto de segundo
-    this.reload = this.reloadTime;
-
-    this.step = function (dt) {
-        if (Game.keys['left']) { this.vx = -this.maxVel; }
-        else if (Game.keys['right']) { this.vx = this.maxVel; }
-        else { this.vx = 0; }
-        this.x += this.vx * dt;
-        if (this.x < 0) { this.x = 0; }
-        else if (this.x > Game.width - this.w) {
-            this.x = Game.width - this.w
-        }
-
-        this.reload -= dt;
-        if (Game.keys['fire'] && this.reload < 0) {
-            Game.keys['fire'] = false;
-            this.reload = this.reloadTime;
-            this.board.add(new PlayerMissile(this.x, this.y + this.h / 2));
-            this.board.add(new PlayerMissile(this.x + this.w, this.y + this.h / 2));
-        }
-
-    }
-    this.draw = function (ctx) {
-        SpriteSheet.draw(ctx, 'ship', this.x, this.y, 0);
-    }
-}
-
 
 ////////////////////////////////////////
 // Tablero del juego 
 ////////////////////////////////////////
-var OBJECT_PLAYER = 1,
-    OBJECT_PLAYER_PROJECTILE = 2,
-    OBJECT_ENEMY = 4,
-    OBJECT_ENEMY_PROJECTILE = 8,
-    OBJECT_POWERUP = 16;
+
 
 var GameBoard = function () {
     var board = this;
@@ -233,74 +238,61 @@ var GameBoard = function () {
 }
 
 
-///////////////////////////////////////////
-//Objeto que maneja los proyectiles del jugador
-///////////////////////////////////////////
-var PlayerMissile = function (x, y) {
-    this.w = SpriteSheet.map['missile'].w;
-    this.h = SpriteSheet.map['missile'].h;
-    // El misil aparece centrado en 'x'
-    this.x = x - this.w / 2;
-    // Con la parte inferior del misil en 'y'
-    this.y = y - this.h;
-    this.vy = -700;
-};
-
-PlayerMissile.prototype.step = function (dt) {
-    this.y += this.vy * dt;
-    var collision = this.board.collide(this, OBJECT_ENEMY);
-    if (collision) {
-       this.board.remove(this);
-        this.board.remove(collision);
-    }
-    if (this.y < -this.h) { this.board.remove(this); }
-};
-
-PlayerMissile.prototype.draw = function (ctx) {
-    SpriteSheet.draw(ctx, 'missile', this.x, this.y);
-};
-
-
-///////////////////////////////////////////
-//Objeto que maneja las naves enemigas
-///////////////////////////////////////////
-var Enemy = function (blueprint, override) {
-    var baseParameters = {
-        A: 0, B: 0, C: 0, D: 0,
-        E: 0, F: 0, G: 0, H: 0
-    }
-    // Se inicializan todos los parámetros a 0
-    for (var prop in baseParameters) {
-        this[prop] = baseParameters[prop];
-    }
-    // Se copian los atributos del blueprint
-    for (prop in blueprint) {
-        this[prop] = blueprint[prop];
-    }
-    // Se copian los atributos redefinidos, si los hay
-    if (override) {
-        for (prop in override) {
-            this[prop] = override[prop];
+////////////////////////////////
+// Objeto para controlar los controles tactiles
+////////////////////////////////
+var TouchControls = function () {
+    var gutterWidth = 10;
+    var unitWidth = Game.width / 5;
+    var blockWidth = unitWidth - gutterWidth;
+    this.drawSquare = function (ctx, x, y, txt, on) {
+        ctx.globalAlpha = on ? 0.9 : 0.6;
+        ctx.fillStyle = "#CCC";
+        ctx.fillRect(x, y, blockWidth, blockWidth);
+        ctx.fillStyle = "#FFF";
+        ctx.textAlign = "center";
+        ctx.globalAlpha = 1.0;
+        ctx.font = "bold " + (3 * unitWidth / 4) + "px arial";
+        ctx.fillText(txt,
+            x + blockWidth / 2,
+            y + 3 * blockWidth / 4 + 5);
+    };
+    this.draw = function (ctx) {
+        ctx.save();
+        var yLoc = Game.height - unitWidth;
+        this.drawSquare(ctx, gutterWidth, yLoc, "\u25C0", Game.keys['left']);
+        this.drawSquare(ctx, unitWidth + gutterWidth, yLoc, "\u25B6", Game.keys['right']);
+        this.drawSquare(ctx, 4 * unitWidth, yLoc, "A", Game.keys['fire']);
+        ctx.restore();
+    };
+    this.step = function (dt) { };
+    this.trackTouch = function (e) {
+        var touch, x;
+        e.preventDefault();
+        Game.keys['left'] = false;
+        Game.keys['right'] = false;
+        for (var i = 0; i < e.targetTouches.length; i++) {
+            touch = e.targetTouches[i];
+            x = touch.pageX / Game.canvasMultiplier - Game.canvas.offsetLeft;
+            if (x < unitWidth) {
+                Game.keys['left'] = true;
+            }
+            if (x > unitWidth && x < 2 * unitWidth) {
+                Game.keys['right'] = true;
+            }
         }
-    }
-    this.w = SpriteSheet.map[this.sprite].w;
-    this.h = SpriteSheet.map[this.sprite].h;
-    this.t = 0;
-    this.type = OBJECT_ENEMY;
-
-    Enemy.prototype.step = function (dt) {
-        this.t += dt;
-        this.vx = this.A + this.B * Math.sin(this.C * this.t + this.D);
-        this.vy = this.E + this.F * Math.sin(this.G * this.t + this.H);
-        this.x += this.vx * dt;
-        this.y += this.vy * dt;
-        if (this.y > Game.height ||
-            this.x < -this.w ||
-            this.x > Game.width) {
-            this.board.remove(this);
+        if (e.type == 'touchstart' || e.type == 'touchend') {
+            for (i = 0; i < e.changedTouches.length; i++) {
+                touch = e.changedTouches[i];
+                x = touch.pageX / Game.canvasMultiplier - Game.canvas.offsetLeft;
+                if (x > 4 * unitWidth) {
+                    Game.keys['fire'] = (e.type == 'touchstart');
+                }
+            }
         }
-    }
-    Enemy.prototype.draw = function (ctx) {
-        SpriteSheet.draw(ctx, this.sprite, this.x, this.y);
-    }
+    };
+    Game.canvas.addEventListener('touchstart', this.trackTouch, true);
+    Game.canvas.addEventListener('touchmove', this.trackTouch, true);
+    Game.canvas.addEventListener('touchend', this.trackTouch, true);
+    Game.playerOffset = unitWidth + 20;
 };
